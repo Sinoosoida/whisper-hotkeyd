@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Whisper Hotkey
+Comment=Push-to-talk voice transcription to clipboard
+Exec=whisper-hotkeyd
+Icon=whisper-hotkeyd
+Terminal=false
+Categories=Utility;AudioVideo;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
