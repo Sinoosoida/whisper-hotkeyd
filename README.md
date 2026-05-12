@@ -129,6 +129,16 @@ A single user-space process. `cli.py` boots Qt and wires three actors:
 No more `sudo`. Access to `/dev/input/event*` comes from `input`-group
 membership; clipboard goes through `xclip`/`wl-copy` running as the same user.
 
+## Releasing (maintainer)
+
+```bash
+./scripts/release.sh 5.2.0
+```
+
+Bumps the version, tags, pushes a GitHub Release, recomputes the PKGBUILD's
+sha256 against the freshly-published tarball, and syncs PKGBUILD + .SRCINFO to
+the AUR repo. Requires `gh` logged in and an SSH key registered with AUR.
+
 ## License
 
 MIT.
