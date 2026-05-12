@@ -6,6 +6,8 @@ dist/
 pkg/
 src/
 *.pkg.tar.zst
+*.tar.gz
+.claude/
 .venv/
 .vscode/
 .idea/
