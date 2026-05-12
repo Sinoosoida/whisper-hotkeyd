@@ -9,3 +9,4 @@ src/
 .venv/
 .vscode/
 .idea/
+.SRCINFO
