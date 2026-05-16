@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 
@@ -10,6 +11,44 @@ from whisper_hotkeyd.config import CONFIG_PATH, LOG_DIR, Config
 from whisper_hotkeyd.logsetup import LOG_FILE, setup_logging
 
 log = logging.getLogger(__name__)
+
+
+def _instance_lock_name() -> str:
+    # Per-user named socket. Different users on the same host don't collide.
+    return f"whisper-hotkeyd-{os.getuid()}"
+
+
+def _claim_single_instance(app):
+    """Try to become the only running instance.
+
+    Returns the QLocalServer on success (the caller must keep a reference to
+    it for the lifetime of the app), or None if another live instance was
+    detected (caller should exit).
+    """
+    from PySide6.QtNetwork import QLocalServer, QLocalSocket
+
+    name = _instance_lock_name()
+
+    probe = QLocalSocket()
+    probe.connectToServer(name)
+    if probe.waitForConnected(500):
+        # Existing instance answered — ring the doorbell and bail.
+        try:
+            probe.write(b"raise\n")
+            probe.waitForBytesWritten(500)
+        finally:
+            probe.disconnectFromServer()
+        return None
+
+    # No live listener (or stale socket from a crashed process) — claim it.
+    QLocalServer.removeServer(name)
+    server = QLocalServer(app)
+    if not server.listen(name):
+        log.warning(
+            "Could not claim instance lock '%s' (%s); continuing without it.",
+            name, server.errorString(),
+        )
+    return server
 
 
 def _run_tray(verbose: bool) -> int:
@@ -31,6 +70,12 @@ def _run_tray(verbose: bool) -> int:
     app.setApplicationDisplayName("Whisper Hotkey")
     app.setQuitOnLastWindowClosed(False)
 
+    instance_server = _claim_single_instance(app)
+    if instance_server is None:
+        log.info("Another instance is already running; exiting.")
+        print("whisper-hotkeyd is already running.", file=sys.stderr)
+        return 0
+
     if not QSystemTrayIcon.isSystemTrayAvailable():
         log.critical("System tray is not available on this desktop session")
         return 1
@@ -47,6 +92,19 @@ def _run_tray(verbose: bool) -> int:
     )
     tray = TrayApp(app, engine, config, listener)
     listener.start()
+
+    def _on_second_launch():
+        sock = instance_server.nextPendingConnection()
+        if sock is not None:
+            sock.disconnectFromServer()
+        log.info("Second launch attempt suppressed by single-instance lock")
+        tray.tray.showMessage(
+            "Whisper Hotkey",
+            "Already running — second launch ignored.",
+            QSystemTrayIcon.Information,
+            4000,
+        )
+    instance_server.newConnection.connect(_on_second_launch)
 
     # Surface input-group issues to the user via tray after a short delay.
     from PySide6.QtCore import QTimer
