@@ -40,6 +40,8 @@ class ApiConfig:
     model: str = "openai/whisper-large-v3-turbo"
     language: str = "ru"
     request_timeout_sec: int = 120
+    max_attempts: int = 3
+    retry_backoff_sec: float = 2.0
 
 
 @dataclass

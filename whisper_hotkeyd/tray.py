@@ -112,6 +112,24 @@ class SettingsDialog(QDialog):
         self.request_timeout.setValue(config.api.request_timeout_sec)
         form.addRow("HTTP timeout:", self.request_timeout)
 
+        self.max_attempts = QSpinBox()
+        self.max_attempts.setRange(1, 10)
+        self.max_attempts.setValue(config.api.max_attempts)
+        self.max_attempts.setToolTip(
+            "Retries on HTTP 429/502/503/504 and network errors."
+        )
+        form.addRow("Max API attempts:", self.max_attempts)
+
+        self.retry_backoff = QDoubleSpinBox()
+        self.retry_backoff.setRange(0.0, 30.0)
+        self.retry_backoff.setSingleStep(0.5)
+        self.retry_backoff.setSuffix(" s")
+        self.retry_backoff.setValue(config.api.retry_backoff_sec)
+        self.retry_backoff.setToolTip(
+            "Initial backoff; doubles each retry. Server Retry-After overrides."
+        )
+        form.addRow("Retry backoff:", self.retry_backoff)
+
         self.mode = QComboBox()
         self.mode.addItem("Toggle — press to start, press again to stop", "toggle")
         self.mode.addItem("Hold — record while key is held", "hold")
@@ -196,6 +214,8 @@ class SettingsDialog(QDialog):
         cfg.api.model = self.model.text().strip()
         cfg.api.language = self.language.currentData()
         cfg.api.request_timeout_sec = self.request_timeout.value()
+        cfg.api.max_attempts = self.max_attempts.value()
+        cfg.api.retry_backoff_sec = self.retry_backoff.value()
         cfg.recording.trigger_key = self._trigger_key_value
         cfg.recording.mode = self.mode.currentData()
         cfg.recording.rms_threshold_dbfs = self.rms.value()

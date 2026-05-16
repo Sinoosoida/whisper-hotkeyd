@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 from pathlib import Path
 
@@ -10,6 +9,10 @@ from pydub import AudioSegment
 
 log = logging.getLogger(__name__)
 
+# HTTP statuses worth retrying. 429 = rate-limit / model busy (DeepInfra's
+# "Model busy, retry later"); 502/503/504 = transient backend hiccups.
+RETRYABLE_STATUS = {429, 502, 503, 504}
+
 
 class TranscriptionError(Exception):
     pass
@@ -17,12 +20,16 @@ class TranscriptionError(Exception):
 
 class Transcriber:
     def __init__(self, api_key: str, api_url: str, model: str, language: str,
-                 request_timeout_sec: int = 120) -> None:
+                 request_timeout_sec: int = 120,
+                 max_attempts: int = 3,
+                 retry_backoff_sec: float = 2.0) -> None:
         self.api_key = api_key
         self.api_url = api_url
         self.model = model
         self.language = language
         self.request_timeout_sec = request_timeout_sec
+        self.max_attempts = max(1, max_attempts)
+        self.retry_backoff_sec = max(0.0, retry_backoff_sec)
 
     def transcribe(self, wav_path: Path, timeout_sec: int | None = None) -> str:
         if timeout_sec is None:
@@ -38,40 +45,90 @@ class Transcriber:
             audio.export(str(mp3_path), format="mp3", bitrate="64k")
             convert_ms = int((time.monotonic() - t0) * 1000)
 
-            t1 = time.monotonic()
-            with mp3_path.open("rb") as f:
-                response = requests.post(
-                    self.api_url,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                    files={"file": (mp3_path.name, f, "audio/mpeg")},
-                    data={"model": self.model, "language": self.language},
-                    timeout=timeout_sec,
-                )
-            api_ms = int((time.monotonic() - t1) * 1000)
-
-            if response.status_code != 200:
-                log.error("Transcription API returned %d: %s",
-                          response.status_code, response.text[:500])
-                raise TranscriptionError(
-                    f"API returned {response.status_code}: {response.text[:200]}"
-                )
-
-            result = response.json()
-            if "text" not in result:
-                log.error("API response missing 'text' field: %s", result)
-                raise TranscriptionError("API response missing 'text' field")
-
-            text = result["text"].strip()
-            log.info("Transcribed %s in %dms (convert %dms, api %dms): %d chars",
-                     wav_path.name, convert_ms + api_ms, convert_ms, api_ms, len(text))
-            return text
-
-        except requests.RequestException as e:
-            log.exception("HTTP error during transcription")
-            raise TranscriptionError(str(e)) from e
+            return self._post_with_retry(
+                mp3_path, timeout_sec, wav_path.name, convert_ms
+            )
         finally:
             if mp3_path.exists():
                 try:
                     mp3_path.unlink()
                 except OSError:
                     pass
+
+    def _post_with_retry(self, mp3_path: Path, timeout_sec: int,
+                         wav_name: str, convert_ms: int) -> str:
+        last_error: Exception | None = None
+
+        for attempt in range(1, self.max_attempts + 1):
+            try:
+                t1 = time.monotonic()
+                with mp3_path.open("rb") as f:
+                    response = requests.post(
+                        self.api_url,
+                        headers={"Authorization": f"Bearer {self.api_key}"},
+                        files={"file": (mp3_path.name, f, "audio/mpeg")},
+                        data={"model": self.model, "language": self.language},
+                        timeout=timeout_sec,
+                    )
+                api_ms = int((time.monotonic() - t1) * 1000)
+
+                if response.status_code == 200:
+                    result = response.json()
+                    if "text" not in result:
+                        log.error("API response missing 'text' field: %s", result)
+                        raise TranscriptionError("API response missing 'text' field")
+                    text = result["text"].strip()
+                    log.info(
+                        "Transcribed %s in %dms (convert %dms, api %dms, "
+                        "attempt %d/%d): %d chars",
+                        wav_name, convert_ms + api_ms, convert_ms, api_ms,
+                        attempt, self.max_attempts, len(text),
+                    )
+                    return text
+
+                if (response.status_code in RETRYABLE_STATUS
+                        and attempt < self.max_attempts):
+                    delay = self._compute_backoff(attempt, response)
+                    log.warning(
+                        "API %d on %s (attempt %d/%d), retrying in %.1fs: %s",
+                        response.status_code, wav_name, attempt,
+                        self.max_attempts, delay, response.text[:200],
+                    )
+                    time.sleep(delay)
+                    continue
+
+                log.error("Transcription API returned %d: %s",
+                          response.status_code, response.text[:500])
+                raise TranscriptionError(
+                    f"API returned {response.status_code}: {response.text[:200]}"
+                )
+
+            except (requests.ConnectionError, requests.Timeout) as e:
+                last_error = e
+                if attempt < self.max_attempts:
+                    delay = self.retry_backoff_sec * (2 ** (attempt - 1))
+                    log.warning(
+                        "Network error on %s (attempt %d/%d), retrying "
+                        "in %.1fs: %s",
+                        wav_name, attempt, self.max_attempts, delay, e,
+                    )
+                    time.sleep(delay)
+                    continue
+                log.exception("HTTP error during transcription")
+                raise TranscriptionError(str(e)) from e
+
+        raise TranscriptionError(
+            f"Exhausted {self.max_attempts} attempts; last error: {last_error}"
+        )
+
+    def _compute_backoff(self, attempt: int, response) -> float:
+        # Servers may provide an explicit Retry-After (seconds) — honor it.
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                value = float(retry_after)
+                if value > 0:
+                    return min(value, 60.0)
+            except (TypeError, ValueError):
+                pass
+        return self.retry_backoff_sec * (2 ** (attempt - 1))

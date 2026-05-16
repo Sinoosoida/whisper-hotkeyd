@@ -59,6 +59,8 @@ class Engine(QObject):
             model=config.api.model,
             language=config.api.language,
             request_timeout_sec=config.api.request_timeout_sec,
+            max_attempts=config.api.max_attempts,
+            retry_backoff_sec=config.api.retry_backoff_sec,
         )
 
         # Funnel events (possibly from listener / timer threads) through Qt's
@@ -127,6 +129,8 @@ class Engine(QObject):
             model=config.api.model,
             language=config.api.language,
             request_timeout_sec=config.api.request_timeout_sec,
+            max_attempts=config.api.max_attempts,
+            retry_backoff_sec=config.api.retry_backoff_sec,
         )
 
     @Slot()
