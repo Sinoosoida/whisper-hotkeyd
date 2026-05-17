@@ -106,6 +106,23 @@ class SettingsDialog(QDialog):
         self.language.setCurrentIndex(idx)
         form.addRow("Speech language:", self.language)
 
+        self.request_format = QComboBox()
+        self.request_format.addItems([
+            "form-data",          # DeepInfra, standard Whisper API
+            "json",               # OpenRouter audio/transcriptions
+        ])
+        idx = self.request_format.findText(config.api.request_format)
+        if idx >= 0:
+            self.request_format.setCurrentIndex(idx)
+        else:
+            self.request_format.addItem(config.api.request_format)
+            self.request_format.setCurrentIndex(self.request_format.count() - 1)
+        self.request_format.setToolTip(
+            "form-data: multipart upload (DeepInfra, standard Whisper API)\n"
+            "json: base64 in JSON body (OpenRouter audio/transcriptions)"
+        )
+        form.addRow("Request format:", self.request_format)
+
         self.request_timeout = QSpinBox()
         self.request_timeout.setRange(5, 3600)
         self.request_timeout.setSuffix(" s")
@@ -213,6 +230,7 @@ class SettingsDialog(QDialog):
         cfg.api.url = self.api_url.text().strip()
         cfg.api.model = self.model.text().strip()
         cfg.api.language = self.language.currentData()
+        cfg.api.request_format = self.request_format.currentText()
         cfg.api.request_timeout_sec = self.request_timeout.value()
         cfg.api.max_attempts = self.max_attempts.value()
         cfg.api.retry_backoff_sec = self.retry_backoff.value()

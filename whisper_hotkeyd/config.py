@@ -39,6 +39,7 @@ class ApiConfig:
     url: str = "https://api.deepinfra.com/v1/openai/audio/transcriptions"
     model: str = "openai/whisper-large-v3-turbo"
     language: str = "ru"
+    request_format: str = "form-data"  # "form-data" | "json"
     request_timeout_sec: int = 120
     max_attempts: int = 3
     retry_backoff_sec: float = 2.0
