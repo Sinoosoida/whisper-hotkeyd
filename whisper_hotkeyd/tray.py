@@ -191,6 +191,14 @@ class SettingsDialog(QDialog):
         self.notifications.setChecked(config.ui.notifications)
         form.addRow(self.notifications)
 
+        self.autostart = QCheckBox("Start automatically at login")
+        self.autostart.setChecked(config.ui.autostart_managed)
+        self.autostart.setToolTip(
+            "Writes ~/.config/autostart/whisper-hotkeyd.desktop so the tray "
+            "starts with your session. Toggle off to remove it."
+        )
+        form.addRow(self.autostart)
+
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -241,6 +249,7 @@ class SettingsDialog(QDialog):
         cfg.recording.timeout_sec = self.timeout.value()
         cfg.clipboard.backend = self.clipboard_backend.currentText()
         cfg.ui.notifications = self.notifications.isChecked()
+        cfg.ui.autostart_managed = self.autostart.isChecked()
         return cfg
 
 
@@ -333,7 +342,10 @@ class TrayApp(QObject):
         about_action.triggered.connect(self._about)
         menu.addAction(about_action)
 
-        quit_action = QAction("Quit")
+        quit_action = QAction(
+            QIcon.fromTheme("application-exit"),
+            "Quit Whisper Hotkey",
+        )
         quit_action.triggered.connect(self.app.quit)
         menu.addAction(quit_action)
 
@@ -368,6 +380,8 @@ class TrayApp(QObject):
             self.engine.reload_config(cfg)
             self.listener.set_trigger_key(cfg.recording.trigger_key)
             self.tray.setToolTip(self._tooltip(self.engine.status))
+            from whisper_hotkeyd.setup_helpers import sync_autostart
+            sync_autostart(cfg.ui.autostart_managed)
             log.info("Settings saved (mode=%s, key=%s)",
                      cfg.recording.mode,
                      format_key_name(cfg.recording.trigger_key))

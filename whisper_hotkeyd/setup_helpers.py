@@ -81,6 +81,23 @@ def autostart_installed() -> bool:
     return AUTOSTART_PATH.exists()
 
 
+def sync_autostart(managed: bool) -> None:
+    """Make the autostart .desktop file presence match `managed`.
+
+    Called at startup so that first-run installs autostart silently, and
+    later toggles in Settings actually create/remove the file. Any IO
+    error is logged but not raised — autostart is a nice-to-have, the app
+    must keep working without it.
+    """
+    try:
+        if managed and not autostart_installed():
+            install_autostart()
+        elif not managed and autostart_installed():
+            remove_autostart()
+    except OSError:
+        log.exception("Could not sync autostart entry (managed=%s)", managed)
+
+
 def run_setup_wizard() -> int:
     print("Whisper Hotkey — setup")
     print("=====================")

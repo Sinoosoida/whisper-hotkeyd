@@ -64,6 +64,10 @@ class ClipboardConfig:
 @dataclass
 class UiConfig:
     notifications: bool = True
+    # Whether the app should keep an autostart .desktop entry in
+    # ~/.config/autostart/. True (the default) installs it on first launch
+    # and re-installs it if missing. Toggled off via Settings.
+    autostart_managed: bool = True
 
 
 @dataclass

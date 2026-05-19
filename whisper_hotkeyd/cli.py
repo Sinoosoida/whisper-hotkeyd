@@ -65,6 +65,9 @@ def _run_tray(verbose: bool) -> int:
     if created:
         log.info("Created default config at %s", CONFIG_PATH)
 
+    from whisper_hotkeyd.setup_helpers import sync_autostart
+    sync_autostart(config.ui.autostart_managed)
+
     app = QApplication(sys.argv)
     app.setApplicationName("whisper-hotkeyd")
     app.setApplicationDisplayName("Whisper Hotkey")
