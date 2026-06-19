@@ -196,6 +196,17 @@ class Engine(QObject):
             retry_backoff_sec=config.api.retry_backoff_sec,
         )
 
+    def shutdown(self) -> None:
+        """Stop any in-flight recording at exit so arecord and its timeout
+        Timer are not orphaned — arecord runs in its own session (setsid) and
+        otherwise outlives the process, writing the WAV unbounded."""
+        try:
+            if self.recorder.is_recording:
+                log.info("Shutdown: stopping in-flight recording")
+                self.recorder.stop()
+        except Exception:
+            log.exception("Error during engine shutdown")
+
     @Slot()
     def _handle_press(self) -> None:
         if self._paused:

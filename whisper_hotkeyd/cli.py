@@ -133,6 +133,7 @@ def _run_tray(verbose: bool) -> int:
     rc = app.exec()
     listener.stop()
     listener.join(timeout=2.0)
+    engine.shutdown()
     log.info("whisper-hotkeyd exiting (rc=%d)", rc)
     return rc
 
