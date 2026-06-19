@@ -261,6 +261,7 @@ class TrayApp(QObject):
         self.engine = engine
         self.config = config
         self.listener = listener
+        self._retry_armed = False
 
         self._icons = {
             Status.IDLE: self._load_icon(ICON_IDLE),
@@ -280,6 +281,8 @@ class TrayApp(QObject):
         engine.transcriptionReady.connect(self._on_transcription)
         engine.errorOccurred.connect(self._on_error)
         engine.notify.connect(self._on_notify)
+        engine.retryAvailable.connect(self._on_retry_available)
+        self.tray.messageClicked.connect(self._on_message_clicked)
 
         if not config.is_configured():
             self.tray.showMessage(
@@ -311,6 +314,14 @@ class TrayApp(QObject):
         self.last_text_action = QAction("Last: (none)")
         self.last_text_action.setEnabled(False)
         menu.addAction(self.last_text_action)
+
+        self.retry_action = QAction("Retry last transcription")
+        self.retry_action.setEnabled(False)
+        self.retry_action.setToolTip(
+            "Re-send the last recording that failed (e.g. provider returned 429)."
+        )
+        self.retry_action.triggered.connect(self.engine.retry_last)
+        menu.addAction(self.retry_action)
 
         menu.addSeparator()
 
@@ -356,6 +367,7 @@ class TrayApp(QObject):
         self.tray.setIcon(self._icons.get(status, self._icons[Status.IDLE]))
         self.tray.setToolTip(self._tooltip(status))
         self.status_action.setText(f"Status: {status.value}")
+        self._refresh_retry_action()
 
     @Slot(str)
     def _on_transcription(self, text: str) -> None:
@@ -368,8 +380,27 @@ class TrayApp(QObject):
 
     @Slot(str)
     def _on_error(self, message: str) -> None:
+        if self._retry_armed:
+            message += ("\nClick here (or tray menu → Retry last "
+                        "transcription) to send it again.")
         self.tray.showMessage("Whisper Hotkey — error", message,
                               QSystemTrayIcon.Critical, 6000)
+
+    @Slot(bool)
+    def _on_retry_available(self, available: bool) -> None:
+        self._retry_armed = available
+        self._refresh_retry_action()
+
+    @Slot()
+    def _on_message_clicked(self) -> None:
+        # Clicking the failure balloon re-sends the last recording.
+        if self._retry_armed:
+            self.engine.retry_last()
+
+    def _refresh_retry_action(self) -> None:
+        busy = self.engine.status in (
+            Status.RECORDING, Status.TRANSCRIBING, Status.PAUSED)
+        self.retry_action.setEnabled(self._retry_armed and not busy)
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self.config, self.listener)

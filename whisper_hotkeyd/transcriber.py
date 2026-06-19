@@ -55,6 +55,16 @@ class Transcriber:
             audio = AudioSegment.from_wav(str(wav_path))
             audio.export(str(mp3_path), format="mp3", bitrate="64k")
             convert_ms = int((time.monotonic() - t0) * 1000)
+            try:
+                mp3_kb = mp3_path.stat().st_size // 1024
+            except OSError:
+                mp3_kb = -1
+            # One line per attempt-batch tying payload size/duration to the
+            # outcome that follows — makes 429/timeout failures diagnosable.
+            log.info(
+                "Transcribing %s: %dms audio, %dKB mp3, format=%s, model=%s",
+                wav_path.name, len(audio), mp3_kb, self.request_format, self.model,
+            )
 
             if self.request_format == "json":
                 return self._post_json(

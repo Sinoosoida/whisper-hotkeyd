@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from enum import Enum
+from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
 
@@ -35,6 +36,7 @@ class Engine(QObject):
     transcriptionReady = Signal(str)
     errorOccurred = Signal(str)
     notify = Signal(str, str)  # title, body
+    retryAvailable = Signal(bool)  # True when a failed recording can be re-sent
 
     _pressSignal = Signal()
     _releaseSignal = Signal()
@@ -45,6 +47,13 @@ class Engine(QObject):
         self.config = config
         self._paused = False
         self._status = Status.IDLE
+        # Path of the last recording that failed to transcribe, kept on disk
+        # so it can be re-sent without re-recording. None when nothing to retry.
+        self._last_audio_path: Path | None = None
+        # Path of the most recently dispatched recording. A worker that finishes
+        # after a newer recording was dispatched must not re-arm retry for its
+        # now-superseded file, so the failure path checks against this.
+        self._inflight_path: Path | None = None
 
         self.recorder = Recorder(
             output_dir=config.output_dir,
@@ -100,6 +109,49 @@ class Engine(QObject):
         """Thread-safe entry point: recorder timed out (from Timer thread)."""
         self._forceStopSignal.emit()
 
+    def _set_retry(self, path: Path | None) -> None:
+        """Arm (path set) or clear (None) the 'retry last transcription' action."""
+        self._last_audio_path = path
+        self.retryAvailable.emit(path is not None)
+
+    def _arm_retry_if_current(self, path: Path) -> None:
+        """Arm retry for `path` only if it is still the latest dispatched
+        recording — guards against an overlapping older worker re-pointing
+        retry at a superseded file."""
+        if path == self._inflight_path:
+            self._set_retry(path)
+
+    @Slot()
+    def retry_last(self) -> None:
+        """Re-send the last failed recording for transcription.
+
+        Runs on the GUI thread (tray menu / notification click). Kept WAVs are
+        never deleted after transcription, so a recording that failed (e.g. the
+        provider returned 429) can be sent again without re-recording it.
+        """
+        if self._paused or self._status in (Status.RECORDING, Status.TRANSCRIBING):
+            log.info("Retry ignored: not idle (paused=%s, status=%s)",
+                     self._paused, self._status.value)
+            return
+        path = self._last_audio_path
+        if path is None:
+            return
+        if not path.exists():
+            log.warning("Retry: recording no longer on disk: %s", path)
+            self.errorOccurred.emit("Cannot retry — the recording file is gone")
+            self._set_retry(None)
+            return
+        log.info("Retrying transcription: %s", path.name)
+        self._set_retry(None)
+        self._inflight_path = path
+        self._set_status(Status.TRANSCRIBING)
+        threading.Thread(
+            target=self._process_recording,
+            args=(path,),
+            name="TranscribeWorker",
+            daemon=True,
+        ).start()
+
     def set_paused(self, value: bool) -> None:
         if value == self._paused:
             return
@@ -116,6 +168,15 @@ class Engine(QObject):
     def reload_config(self, config: Config) -> None:
         log.info("Reloading config (mode=%s, trigger_key=%d)",
                  config.recording.mode, config.recording.trigger_key)
+        # Stop any in-flight recording before swapping the recorder, otherwise
+        # the old arecord process and its timeout Timer are orphaned.
+        if self.recorder.is_recording:
+            log.info("Stopping in-flight recording before applying new config")
+            try:
+                self.recorder.stop()
+            except Exception:
+                log.exception("Error stopping recorder during config reload")
+            self._set_status(Status.IDLE)
         self.config = config
         self.recorder = Recorder(
             output_dir=config.output_dir,
@@ -189,6 +250,9 @@ class Engine(QObject):
             self._set_status(Status.IDLE)
             return
 
+        # A fresh recording supersedes any previously-failed one.
+        self._set_retry(None)
+        self._inflight_path = result.path
         self._set_status(Status.TRANSCRIBING)
         # Heavy work off the GUI thread.
         threading.Thread(
@@ -203,11 +267,13 @@ class Engine(QObject):
             text = self.transcriber.transcribe(path)
         except TranscriptionError as e:
             log.error("Transcription failed: %s", e)
+            self._arm_retry_if_current(path)
             self.errorOccurred.emit(f"Transcription failed: {e}")
             self._set_status(Status.ERROR)
             return
         except Exception as e:
             log.exception("Unexpected transcription error")
+            self._arm_retry_if_current(path)
             self.errorOccurred.emit(f"Unexpected error: {e}")
             self._set_status(Status.ERROR)
             return
