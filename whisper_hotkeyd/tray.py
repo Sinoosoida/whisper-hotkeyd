@@ -187,6 +187,18 @@ class SettingsDialog(QDialog):
         self.clipboard_backend.setCurrentText(config.clipboard.backend)
         form.addRow("Clipboard backend:", self.clipboard_backend)
 
+        self.paste_delay = QDoubleSpinBox()
+        self.paste_delay.setRange(0.0, 30.0)
+        self.paste_delay.setSingleStep(0.5)
+        self.paste_delay.setSuffix(" s")
+        self.paste_delay.setValue(config.ui.paste_delay_sec)
+        self.paste_delay.setToolTip(
+            "Transcriptions run one at a time, in order. This is the pause after "
+            "each one before the next queued recording is sent, so you can paste "
+            "the result before it is overwritten. 0 disables the pause."
+        )
+        form.addRow("Paste delay (queue):", self.paste_delay)
+
         self.notifications = QCheckBox("Show notification with transcription")
         self.notifications.setChecked(config.ui.notifications)
         form.addRow(self.notifications)
@@ -250,6 +262,7 @@ class SettingsDialog(QDialog):
         cfg.clipboard.backend = self.clipboard_backend.currentText()
         cfg.ui.notifications = self.notifications.isChecked()
         cfg.ui.autostart_managed = self.autostart.isChecked()
+        cfg.ui.paste_delay_sec = self.paste_delay.value()
         return cfg
 
 

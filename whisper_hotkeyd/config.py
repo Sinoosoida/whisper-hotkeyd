@@ -68,6 +68,9 @@ class UiConfig:
     # ~/.config/autostart/. True (the default) installs it on first launch
     # and re-installs it if missing. Toggled off via Settings.
     autostart_managed: bool = True
+    # Seconds to wait after a transcription before starting the next queued one,
+    # so its clipboard result can be pasted before being overwritten. 0 disables.
+    paste_delay_sec: float = 2.0
 
 
 @dataclass
