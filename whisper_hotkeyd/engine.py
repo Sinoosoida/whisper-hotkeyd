@@ -118,6 +118,7 @@ class Engine(QObject):
             request_timeout_sec=config.api.request_timeout_sec,
             max_attempts=config.api.max_attempts,
             retry_backoff_sec=config.api.retry_backoff_sec,
+            proxy=config.api.proxy,
         )
 
     # --- properties ---

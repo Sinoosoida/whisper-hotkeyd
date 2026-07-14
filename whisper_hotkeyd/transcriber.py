@@ -32,7 +32,8 @@ class Transcriber:
                  request_format: str = "form-data",
                  request_timeout_sec: int = 120,
                  max_attempts: int = 3,
-                 retry_backoff_sec: float = 2.0) -> None:
+                 retry_backoff_sec: float = 2.0,
+                 proxy: str = "") -> None:
         self.api_key = api_key
         self.api_url = api_url
         self.model = model
@@ -41,6 +42,16 @@ class Transcriber:
         self.request_timeout_sec = request_timeout_sec
         self.max_attempts = max(1, max_attempts)
         self.retry_backoff_sec = max(0.0, retry_backoff_sec)
+        self.proxy = proxy
+
+        # A dedicated Session with trust_env=False makes proxy behavior fully
+        # determined by config: only `proxy` (if set) is used, the process's
+        # HTTP_PROXY/HTTPS_PROXY/NO_PROXY env vars are never consulted.
+        self._session = requests.Session()
+        self._session.trust_env = False
+        if proxy:
+            self._session.proxies = {"http": proxy, "https": proxy}
+            log.info("Transcriber using proxy: %s", proxy)
 
     def transcribe(self, wav_path: Path, timeout_sec: int | None = None) -> str:
         if timeout_sec is None:
@@ -90,7 +101,7 @@ class Transcriber:
             try:
                 t1 = time.monotonic()
                 with mp3_path.open("rb") as f:
-                    response = requests.post(
+                    response = self._session.post(
                         self.api_url,
                         headers={"Authorization": f"Bearer {self.api_key}"},
                         files={"file": (mp3_path.name, f, "audio/mpeg")},
@@ -178,7 +189,7 @@ class Transcriber:
         for attempt in range(1, self.max_attempts + 1):
             try:
                 t1 = time.monotonic()
-                response = requests.post(
+                response = self._session.post(
                     self.api_url,
                     headers=headers,
                     data=json.dumps(payload),

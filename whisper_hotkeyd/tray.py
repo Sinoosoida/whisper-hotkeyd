@@ -129,6 +129,17 @@ class SettingsDialog(QDialog):
         self.request_timeout.setValue(config.api.request_timeout_sec)
         form.addRow("HTTP timeout:", self.request_timeout)
 
+        self.proxy = QLineEdit(config.api.proxy)
+        self.proxy.setPlaceholderText("e.g. http://127.0.0.1:10809  (empty = direct)")
+        self.proxy.setToolTip(
+            "Optional proxy for the transcription request, e.g.\n"
+            "  http://127.0.0.1:10809\n"
+            "  socks5h://127.0.0.1:10808\n"
+            "Empty means go direct. Only this setting is used — the app never "
+            "reads HTTP(S)_PROXY environment variables."
+        )
+        form.addRow("Proxy:", self.proxy)
+
         self.max_attempts = QSpinBox()
         self.max_attempts.setRange(1, 10)
         self.max_attempts.setValue(config.api.max_attempts)
@@ -252,6 +263,7 @@ class SettingsDialog(QDialog):
         cfg.api.language = self.language.currentData()
         cfg.api.request_format = self.request_format.currentText()
         cfg.api.request_timeout_sec = self.request_timeout.value()
+        cfg.api.proxy = self.proxy.text().strip()
         cfg.api.max_attempts = self.max_attempts.value()
         cfg.api.retry_backoff_sec = self.retry_backoff.value()
         cfg.recording.trigger_key = self._trigger_key_value

@@ -43,6 +43,11 @@ class ApiConfig:
     request_timeout_sec: int = 120
     max_attempts: int = 3
     retry_backoff_sec: float = 2.0
+    # Optional proxy for the transcription HTTP request, e.g.
+    # "http://127.0.0.1:10809" or "socks5h://127.0.0.1:10808". Empty ("") means
+    # go direct. Only this setting is honored — process env vars like
+    # HTTPS_PROXY are ignored, so behavior is fully determined by this file.
+    proxy: str = ""
 
 
 @dataclass
